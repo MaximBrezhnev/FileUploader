@@ -1,0 +1,74 @@
+services:
+  app:
+    restart: always
+    volumes:
+      - shared_data:/app/uploads
+    depends_on:
+        - real_db
+        - test_db
+        - redis
+    build:
+        context: .
+    env_file:
+        - .env
+    ports:
+        - "${APP_PORT}:${APP_PORT}"
+    command: >
+      sh -c "alembic upgrade heads &&
+      python3 -m src.main"
+    networks:
+        - custom
+
+  real_db:
+    image: postgres:16-alpine
+    restart: always
+    volumes:
+      - ~/.pg/pg_data/FU:/var/lib/postgresql/data
+    env_file:
+      - .env
+    ports:
+      - "${EXTERNAL_DB_PORT}:${INTERNAL_DB_PORT}"
+    networks:
+      - custom
+
+  test_db:
+    image: postgres:16-alpine
+    restart: no
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_DB=${TEST_DB_NAME}
+      - POSTGRES_USER=${TEST_DB_USER}
+      - POSTGRES_PASSWORD=${TEST_DB_PASSWORD}
+    ports:
+      - "${TEST_DB_PORT}:${INTERNAL_DB_PORT}"
+    networks:
+      - custom
+
+  redis:
+    image: redis:7
+    restart: always
+    ports:
+      - "${CELERY_BROKER_PORT}:${CELERY_BROKER_PORT}"
+    networks:
+      - custom
+
+  worker:
+    restart: always
+    volumes:
+      - shared_data:/app/uploads
+    depends_on:
+      - redis
+      - real_db
+      - test_db
+    build: .
+    command: celery -A src.worker worker --loglevel=info
+    networks:
+      - custom
+
+volumes:
+  shared_data:
+
+networks:
+  custom:
+    driver: bridge
